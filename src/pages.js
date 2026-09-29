@@ -131,7 +131,7 @@ export function adminPage({ invoices, payUrl, config }) {
   return layout(
     'Invoices',
     `<h1>Open invoices</h1>
-<p class="muted">Truemed ${esc(config.truemedEnv)}. Send the client the pay link; they can pay by card or HSA/FSA.
+<p class="muted"><b>${config.mode === 'live' ? 'LIVE' : 'TEST MODE'}</b> (Truemed ${esc(config.truemedEnv)}). Send the client the pay link; they can pay by card or HSA/FSA.
 Paid invoices drop off this list automatically.</p>
 <table><tr><th>Invoice</th><th>Amount</th><th>Truemed</th><th>Pay link</th></tr>${rows || '<tr><td colspan="4">No open invoices.</td></tr>'}</table>`,
   );

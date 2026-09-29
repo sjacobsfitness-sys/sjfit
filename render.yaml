@@ -8,6 +8,8 @@ services:
     startCommand: npm start
     healthCheckPath: /health
     envVars:
+      - key: MODE
+        value: test
       - key: TRUEMED_ENV
         value: sandbox
       - key: TRUEMED_API_KEY
@@ -28,3 +30,14 @@ services:
         generateValue: true
       - key: BRAND_NAME
         value: Jacobs Fitness
+      # Live credentials, used only when MODE=live
+      - key: STRIPE_SECRET_KEY_LIVE
+        sync: false
+      - key: STRIPE_PUBLISHABLE_KEY_LIVE
+        sync: false
+      - key: STRIPE_CPM_TYPE_ID_LIVE
+        sync: false
+      - key: TRUEMED_API_KEY_LIVE
+        sync: false
+      - key: TRUEMED_WEBHOOK_SECRET_LIVE
+        sync: false

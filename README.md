@@ -4,7 +4,7 @@ Clients pay Jacobs Fitness Stripe invoices by **card or HSA/FSA** on one pay pag
 
 ```
 Sean creates an invoice in Stripe (unchanged)
-  → sends the client  https://<app>/pay/<invoice id>   (links listed at /admin)
+  → sends the client  https://pay.jacobsfit.com/pay/<invoice id>   (links listed at /admin)
   → pay page shows Stripe's Payment Element: Card | HSA/FSA (Truemed custom payment method)
        ├─ Card    → the invoice's own Stripe PaymentIntent → invoice paid by Stripe
        └─ HSA/FSA → server reads the invoice from Stripe → Truemed create_payment_session
@@ -41,7 +41,7 @@ against `src/catalog.js`.
    "Provide a custom name and icon" → name `HSA/FSA (Truemed)`, Truemed logo. Copy the `cpmt_...` id.
 2. **Deploy** on Render: New → Blueprint → this repo (uses `render.yaml`), then fill in the secret env vars
    from `.env.example`.
-3. **Truemed webhook** destination: `https://<app>/webhooks/truemed`.
+3. **Truemed webhook** destination: `https://pay.jacobsfit.com/webhooks/truemed`.
 4. Create a test invoice in Stripe test mode with one of the products above, open `/admin`, click through the pay link.
 
 ```bash
@@ -58,6 +58,22 @@ npm start
 - Fee on a $600 test: `truemed_fee` $38.00
 
 Still to confirm: Truemed webhook payload/signature (handler logs raw payloads and accepts `payment_session_id`/`id`).
+
+## Going live
+
+Test and live credentials sit side by side; `MODE` picks which set is used. The app refuses to start if a
+key doesn't match the mode (e.g. a `sk_test_` key while `MODE=live`).
+
+| Env var | `MODE=test` (default) | `MODE=live` |
+| --- | --- | --- |
+| Stripe secret | `STRIPE_SECRET_KEY` | `STRIPE_SECRET_KEY_LIVE` (`rk_live_` restricted key recommended) |
+| Stripe publishable | `STRIPE_PUBLISHABLE_KEY` | `STRIPE_PUBLISHABLE_KEY_LIVE` |
+| Custom payment method | `STRIPE_CPM_TYPE_ID` | `STRIPE_CPM_TYPE_ID_LIVE` (create it again in live mode) |
+| Truemed key | `TRUEMED_API_KEY` (sandbox) | `TRUEMED_API_KEY_LIVE` (production) |
+| Truemed webhook secret | `TRUEMED_WEBHOOK_SECRET` | `TRUEMED_WEBHOOK_SECRET_LIVE` |
+
+Live checklist: copy the 4 products to live mode (keeps `truemed_sku`), set the `_LIVE` vars, point Truemed's
+production webhook at `https://pay.jacobsfit.com/webhooks/truemed`, then set `MODE=live`. Rollback = `MODE=test`.
 
 ## Operations
 

@@ -1,7 +1,7 @@
 import { createServer } from 'node:http';
 import { timingSafeEqual } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
-import { loadEnv, getConfig } from './config.js';
+import { loadEnv, getConfig, validateConfig } from './config.js';
 import { TruemedClient } from './truemed.js';
 import { StripeClient } from './stripe.js';
 import { truemedItemsFromInvoice } from './invoice.js';
@@ -195,10 +195,15 @@ export function createApp({ config, truemed, stripe, log = console }) {
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
   loadEnv();
   const config = getConfig();
+  const problems = validateConfig(config);
+  if (problems.length) {
+    console.error(`Config problems (MODE=${config.mode}):\n - ${problems.join('\n - ')}`);
+    process.exit(1);
+  }
   if (!config.adminPassword) console.warn('ADMIN_PASSWORD is not set; /admin will be locked.');
   const truemed = new TruemedClient({ apiKey: config.truemedApiKey, baseUrl: config.truemedBaseUrl });
   const stripe = new StripeClient({ secretKey: config.stripeSecretKey });
   createServer(createApp({ config, truemed, stripe })).listen(config.port, () => {
-    console.log(`SJFit listening on ${config.publicUrl} (Truemed ${config.truemedEnv}: ${config.truemedBaseUrl})`);
+    console.log(`SJFit listening on ${config.publicUrl} (MODE=${config.mode}, Truemed ${config.truemedEnv}: ${config.truemedBaseUrl})`);
   });
 }
