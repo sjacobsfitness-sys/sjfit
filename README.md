@@ -38,13 +38,14 @@ Never commit `.env`. It's already in `.gitignore`.
 To go live: set `TRUEMED_ENV=production`, swap in the production API key Truemed gives you, set `PUBLIC_URL` to
 the deployed URL and give Truemed `https://<your-domain>/webhooks/truemed` as the webhook URL.
 
-## Things to confirm against Truemed's docs
+## Verified against Truemed sandbox (2026-09-29)
 
-The Truemed API paths, auth header and field names are in **one place**, `src/truemed.js` (`PATHS` plus the
-request body in `createPaymentSession`). They were written without access to docs.truemed.com, so run
-`npm run smoke` first. If Truemed returns a 4xx, its error body is printed and usually names the wrong field.
+Full lifecycle tested end to end: create session → survey → HSA/FSA checkout → letter → `captured`.
 
-- Sandbox base URL `https://dev-api.truemed.com` (override with `TRUEMED_BASE_URL`)
-- Auth header `x-truemed-api-key`
-- Webhook payload shape. The handler looks for `payment_session_id`/`id`, then **re-fetches the session from
-  Truemed** to get the real status, so a forged webhook can't mark an order paid.
+- Base URL `https://dev-api.truemed.com`, auth header `x-truemed-api-key`
+- `POST /payments/v1/create_payment_session` returns `{ id, redirect_url }`
+- `GET /payments/v1/payment_session/{id}` returns `status: "captured"` once paid, plus `truemed_fee`
+- Truemed's fee on a $600 test order was $38.00 (~6.33%). Set `TRUEMED_FEE_PERCENT=6.33` to pass it through to clients.
+
+Still unverified: the webhook payload shape. The handler looks for `payment_session_id`/`id`, then **re-fetches the
+session from Truemed** to get the real status, so a forged webhook can't mark an order paid.
