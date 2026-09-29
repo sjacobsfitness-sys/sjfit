@@ -1,51 +1,65 @@
-# SJFit – Truemed HSA/FSA payments
+# SJFit – HSA/FSA payments for Stripe invoices (Truemed)
 
-Lets Jacobs Fitness clients pay for coaching with HSA/FSA cards through Truemed.
+Clients pay Jacobs Fitness Stripe invoices by **card or HSA/FSA** on one pay page.
 
-Sean invoices clients one-on-one, so there is no Stripe checkout to modify. Instead:
+```
+Sean creates an invoice in Stripe (unchanged)
+  → sends the client  https://<app>/pay/<invoice id>   (links listed at /admin)
+  → pay page shows Stripe's Payment Element: Card | HSA/FSA (Truemed custom payment method)
+       ├─ Card    → the invoice's own Stripe PaymentIntent → invoice paid by Stripe
+       └─ HSA/FSA → server reads the invoice from Stripe → Truemed create_payment_session
+                    → client does survey + pays with HSA/FSA card on Truemed
+                    → Truemed webhook (+ return page) → server re-checks session with Truemed
+                    → status "captured" → Stripe invoice marked PAID (out of band)
+```
 
-1. Sean opens `/admin`, picks the service (SKU), enters the client's name/email and the **full prepaid price**
-   (e.g. 6 or 12 months up front), and gets a Truemed payment link.
-2. Sean sends that link to the client like any other payment link.
-3. The client takes Truemed's short health survey and pays with their HSA/FSA card.
-4. Truemed gets a Letter of Medical Necessity, captures the payment and sends a webhook to `/webhooks/truemed`.
-   The order flips to `captured` in `/admin` and payout arrives through Truemed's Stripe connection in 1–2 days.
+- **No database.** The Truemed session id/link/status are stored on the Stripe invoice's metadata.
+- **Amounts always come from Stripe**, never from the browser.
+- **Webhooks are never trusted blindly**: the session is re-fetched from Truemed before marking anything paid.
+- HSA/FSA invoices are marked *paid out of band*, so no Stripe Payment Records entitlement is needed and
+  there's no "Canceled" PaymentIntent entry.
+- Until `STRIPE_PUBLISHABLE_KEY` + `STRIPE_CPM_TYPE_ID` are set, the pay page shows two buttons instead:
+  **Pay with HSA/FSA** and **Pay by card** (Stripe's hosted invoice page).
 
-## SKUs (registered with Truemed)
+## SKUs
 
-| SKU | Service |
+Each Stripe Product used on invoices needs metadata `truemed_sku` (already set in test mode):
+
+| SKU | Stripe product |
 | --- | --- |
 | `inperson-training` | Private In-Person Training Sessions |
 | `online-training` | Online Coaching: Training |
 | `online-nutrition` | Online Coaching: Nutrition |
 | `online-hybrid` | Online Coaching: Training + Nutrition |
 
-SKUs must never change; prices can be anything at purchase time. Edit `src/catalog.js` to add more.
+Lines without a SKU block HSA/FSA checkout for that invoice (card still works). Fallback: product name match
+against `src/catalog.js`.
 
 ## Setup
 
-Requires Node 20+. No npm dependencies.
+1. **Stripe custom payment method**: Dashboard → Settings → Payments → Custom payment methods → Create →
+   "Provide a custom name and icon" → name `HSA/FSA (Truemed)`, Truemed logo. Copy the `cpmt_...` id.
+2. **Deploy** (Render: New → Web Service → this repo, build `npm install`, start `npm start`) and set env vars
+   from `.env.example`.
+3. **Truemed webhook** destination: `https://<app>/webhooks/truemed`.
+4. Create a test invoice in Stripe test mode with one of the products above, open `/admin`, click through the pay link.
 
 ```bash
-cp .env.example .env      # then paste your Truemed SANDBOX API key into TRUEMED_API_KEY
-npm test                  # unit tests (no network)
-npm run smoke             # creates a real Truemed sandbox payment session and prints the checkout URL
-npm start                 # http://localhost:3000  (admin at /admin, user "admin", password = ADMIN_PASSWORD)
+npm test         # unit tests, no network
+npm run smoke    # live Truemed sandbox session (needs TRUEMED_API_KEY)
+npm start
 ```
-
-Never commit `.env`. It's already in `.gitignore`.
-
-To go live: set `TRUEMED_ENV=production`, swap in the production API key Truemed gives you, set `PUBLIC_URL` to
-the deployed URL and give Truemed `https://<your-domain>/webhooks/truemed` as the webhook URL.
 
 ## Verified against Truemed sandbox (2026-09-29)
 
-Full lifecycle tested end to end: create session → survey → HSA/FSA checkout → letter → `captured`.
+- Base URL `https://dev-api.truemed.com`, header `x-truemed-api-key`
+- `POST /payments/v1/create_payment_session` → `{ id, redirect_url }`
+- `GET /payments/v1/payment_session/{id}` → `status`: `processing` (authorized, awaiting letter) → `captured`
+- Fee on a $600 test: `truemed_fee` $38.00
 
-- Base URL `https://dev-api.truemed.com`, auth header `x-truemed-api-key`
-- `POST /payments/v1/create_payment_session` returns `{ id, redirect_url }`
-- `GET /payments/v1/payment_session/{id}` returns `status: "captured"` once paid, plus `truemed_fee`
-- Truemed's fee on a $600 test order was $38.00 (~6.33%). Set `TRUEMED_FEE_PERCENT=6.33` to pass it through to clients.
+Still to confirm: Truemed webhook payload/signature (handler logs raw payloads and accepts `payment_session_id`/`id`).
 
-Still unverified: the webhook payload shape. The handler looks for `payment_session_id`/`id`, then **re-fetches the
-session from Truemed** to get the real status, so a forged webhook can't mark an order paid.
+## Operations
+
+- **Payouts** come from Truemed via its Stripe Express account (not your Stripe balance), ~1–2 days.
+- **Refunds/disputes** for HSA/FSA payments are handled in Truemed, not Stripe.

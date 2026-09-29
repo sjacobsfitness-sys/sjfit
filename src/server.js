@@ -1,25 +1,14 @@
 import { createServer } from 'node:http';
-import { randomUUID, timingSafeEqual } from 'node:crypto';
+import { timingSafeEqual } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { loadEnv, getConfig } from './config.js';
-import { CATALOG, findItem } from './catalog.js';
-import { TruemedClient, applyFee, dollarsToCents } from './truemed.js';
-import { OrderStore } from './store.js';
+import { TruemedClient } from './truemed.js';
+import { StripeClient } from './stripe.js';
+import { truemedItemsFromInvoice } from './invoice.js';
+import { payPage, messagePage, adminPage, homePage } from './pages.js';
 
-const esc = (s) =>
-  String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
-const money = (cents) => `$${(cents / 100).toFixed(2)}`;
-
-function page(title, body) {
-  return `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>${esc(title)}</title><style>
-body{font-family:system-ui,sans-serif;max-width:760px;margin:0 auto;padding:24px 16px;color:#111;background:#fff}
-input,select,button{font:inherit;padding:8px;margin:4px 0 12px;width:100%;box-sizing:border-box}
-button{background:#111;color:#fff;border:0;border-radius:6px;cursor:pointer}
-table{width:100%;border-collapse:collapse;font-size:14px}td,th{border-bottom:1px solid #ddd;padding:6px;text-align:left}
-.box{padding:12px;border-radius:8px;background:#f3f3f3;word-break:break-all}
-</style></head><body>${body}</body></html>`;
-}
+// Truemed sessions in these states can't be paid any more; a fresh one is created instead.
+const DEAD_TRUEMED_STATUSES = new Set(['failed', 'canceled', 'cancelled', 'voided', 'expired', 'rejected']);
 
 function safeEqual(a, b) {
   const x = Buffer.from(String(a));
@@ -38,10 +27,9 @@ async function readBody(req, limit = 1_000_000) {
   return Buffer.concat(chunks).toString('utf8');
 }
 
-// Truemed statuses that mean "money is captured, deliver the service".
-const PAID_STATUSES = new Set(['captured', 'complete', 'completed', 'succeeded', 'paid']);
+export function createApp({ config, truemed, stripe, log = console }) {
+  const payUrl = (invoiceId) => `${config.publicUrl}/pay/${invoiceId}`;
 
-export function createApp({ config, truemed, store, log = console }) {
   function isAdmin(req) {
     if (!config.adminPassword) return false;
     const header = req.headers.authorization || '';
@@ -50,65 +38,65 @@ export function createApp({ config, truemed, store, log = console }) {
     return user === 'admin' && safeEqual(pass ?? '', config.adminPassword);
   }
 
-  function adminPage(result = '') {
-    const options = CATALOG.map((i) => `<option value="${esc(i.sku)}">${esc(i.name)} (${esc(i.sku)})</option>`).join('');
-    const rows = store
-      .all()
-      .map(
-        (o) => `<tr><td>${esc(o.createdAt.slice(0, 10))}</td><td>${esc(o.customerName)}<br><small>${esc(o.customerEmail)}</small></td>
-<td>${esc(o.items.map((i) => i.name).join(', '))}</td><td>${money(o.totalAmount)}</td><td><b>${esc(o.status)}</b></td>
-<td><a href="${esc(o.redirectUrl)}">link</a></td></tr>`,
-      )
-      .join('');
-    return page(
-      'SJFit Admin',
-      `<h1>HSA/FSA payment link (Truemed ${esc(config.truemedEnv)})</h1>${result}
-<form method="post" action="/admin/sessions">
-<label>Client name<input name="customerName" required></label>
-<label>Client email<input name="customerEmail" type="email" required></label>
-<label>Client state (2-letter, optional)<input name="customerState" maxlength="2"></label>
-<label>Service<select name="sku">${options}</select></label>
-<label>Description shown to client (e.g. "6 months online coaching")<input name="description"></label>
-<label>Price in dollars (full prepaid amount)<input name="price" inputmode="decimal" required></label>
-${config.feePercent ? `<p><small>Price is grossed up by ${config.feePercent}% to cover Truemed's fee.</small></p>` : ''}
-<button>Create payment link</button></form>
-<h2>Orders</h2><table><tr><th>Date</th><th>Client</th><th>Items</th><th>Total</th><th>Status</th><th></th></tr>${rows}</table>`,
-    );
-  }
+  // Create (or reuse) the Truemed payment session for an open Stripe invoice.
+  // The invoice is always re-read from Stripe: amounts never come from the browser.
+  async function startTruemed(invoiceId) {
+    const invoice = await stripe.getInvoice(invoiceId);
+    if (invoice.status !== 'open') throw Object.assign(new Error('This invoice is not open for payment.'), { status: 409 });
 
-  async function createSession(form) {
-    const catalogItem = findItem(form.sku);
-    if (!catalogItem) throw new Error(`Unknown SKU ${form.sku}`);
-    const price = applyFee(dollarsToCents(form.price), config.feePercent);
-    const orderId = `sjf_${randomUUID()}`;
-    const items = [{ sku: catalogItem.sku, name: form.description || catalogItem.name, price, quantity: 1 }];
+    const existingId = invoice.metadata?.truemed_session_id;
+    if (existingId && invoice.metadata?.truemed_redirect_url) {
+      const existing = await truemed.getPaymentSession(existingId).catch(() => undefined);
+      const status = String(existing?.status || '').toLowerCase();
+      if (existing && !DEAD_TRUEMED_STATUSES.has(status)) {
+        return { redirect_url: invoice.metadata.truemed_redirect_url };
+      }
+    }
+
+    const { items } = truemedItemsFromInvoice(invoice, config.feePercent);
+    const customer = typeof invoice.customer === 'object' ? invoice.customer : {};
     const session = await truemed.createPaymentSession({
-      orderId,
+      orderId: invoice.id,
       items,
-      customerName: form.customerName,
-      customerEmail: form.customerEmail,
-      customerState: form.customerState?.toUpperCase() || undefined,
-      successUrl: `${config.publicUrl}/checkout/success?order=${orderId}`,
-      failureUrl: `${config.publicUrl}/checkout/failure?order=${orderId}`,
-      idempotencyKey: orderId,
+      customerEmail: invoice.customer_email || customer.email,
+      customerName: invoice.customer_name || customer.name,
+      customerState: invoice.customer_address?.state || customer.address?.state || undefined,
+      successUrl: `${payUrl(invoice.id)}/complete?via=truemed`,
+      failureUrl: `${payUrl(invoice.id)}?truemed=failed`,
+      idempotencyKey: `${invoice.id}-${Date.now()}`,
     });
-    const redirectUrl = session.redirect_url || session.redirectUrl || session.url;
-    return store.add({
-      orderId,
-      truemedSessionId: session.id || session.payment_session_id,
-      redirectUrl,
-      customerName: form.customerName,
-      customerEmail: form.customerEmail,
-      items,
-      totalAmount: price,
-      status: 'created',
-      createdAt: new Date().toISOString(),
+    await stripe.updateInvoiceMetadata(invoice.id, {
+      truemed_session_id: session.id,
+      truemed_redirect_url: session.redirect_url,
+      truemed_status: 'created',
     });
+    return { redirect_url: session.redirect_url };
   }
 
-  // Webhooks are only a hint: we always re-fetch the session from Truemed's API
-  // (authenticated with our key) before trusting its status.
-  async function handleWebhook(req, raw) {
+  // Check a Truemed session and, once captured, mark its Stripe invoice paid (out of band).
+  // Safe to call repeatedly: an already-paid invoice is left alone.
+  async function reconcileTruemedSession(sessionId, invoice) {
+    const session = await truemed.getPaymentSession(sessionId);
+    const status = String(session.status || 'unknown').toLowerCase();
+    invoice ??= await stripe.findInvoiceByTruemedSession(sessionId);
+    if (!invoice) {
+      log.warn?.(`No Stripe invoice found for Truemed session ${sessionId}`);
+      return { status, invoice: undefined };
+    }
+    if (invoice.metadata?.truemed_session_id !== sessionId) return { status, invoice };
+    if (status === 'captured' && invoice.status === 'open') {
+      await stripe.updateInvoiceMetadata(invoice.id, { truemed_status: status });
+      invoice = await stripe.markInvoicePaidOutOfBand(invoice.id);
+      log.log?.(`PAID via Truemed: invoice ${invoice.id} (${invoice.customer_email}) session ${sessionId}`);
+    } else if (invoice.metadata?.truemed_status !== status && invoice.status === 'open') {
+      await stripe.updateInvoiceMetadata(invoice.id, { truemed_status: status });
+    }
+    return { status, invoice };
+  }
+
+  // Webhooks are only a hint: the session status is always re-read from Truemed's API
+  // (authenticated with our key), so a forged webhook can't mark an invoice paid.
+  async function handleTruemedWebhook(req, raw) {
     if (config.webhookSecret) {
       const provided =
         req.headers['x-truemed-webhook-secret'] ||
@@ -122,79 +110,84 @@ ${config.feePercent ? `<p><small>Price is grossed up by ${config.feePercent}% to
     } catch {
       return { status: 400, body: 'invalid json' };
     }
+    log.log?.(`Truemed webhook: ${raw.slice(0, 2000)}`);
     const data = event.data || event.payment_session || event;
-    const sessionId = data.payment_session_id || data.id || event.payment_session_id;
-    if (!sessionId) return { status: 400, body: 'missing payment session id' };
-
-    const order = store.findBySessionId(sessionId);
-    if (!order) {
-      log.warn?.(`Webhook for unknown Truemed session ${sessionId}`);
-      return { status: 200, body: 'ignored' };
-    }
-    const session = await truemed.getPaymentSession(sessionId);
-    const status = String(session.status || 'unknown').toLowerCase();
-    const paid = PAID_STATUSES.has(status);
-    store.update(sessionId, { status, paid, lastEvent: event.type || event.event_type || event.event });
-    if (paid) {
-      // Deliver the service here: email Sean, unlock the program, etc.
-      log.log?.(`PAID: ${order.customerName} <${order.customerEmail}> ${money(order.totalAmount)} (${order.orderId})`);
-    }
+    const sessionId = data.payment_session_id || event.payment_session_id || data.id;
+    if (!sessionId) return { status: 200, body: 'ignored: no payment session id' };
+    await reconcileTruemedSession(sessionId);
     return { status: 200, body: 'ok' };
   }
 
   return async function handler(req, res) {
     const url = new URL(req.url, 'http://localhost');
     const send = (status, body, type = 'text/html; charset=utf-8', headers = {}) => {
-      res.writeHead(status, { 'content-type': type, ...headers });
+      res.writeHead(status, { 'content-type': type, 'cache-control': 'no-store', ...headers });
       res.end(body);
     };
+    const json = (status, obj) => send(status, JSON.stringify(obj), 'application/json');
+    const pay = url.pathname.match(/^\/pay\/(in_[A-Za-z0-9]+)(\/truemed|\/complete)?$/);
+
     try {
-      if (req.method === 'GET' && url.pathname === '/') {
-        return send(
-          200,
-          page(
-            'Jacobs Fitness - HSA/FSA',
-            `<h1>Pay for coaching with your HSA/FSA</h1>
-<p>Jacobs Fitness accepts HSA and FSA cards through Truemed for private in-person training and
-1:1 online training and nutrition coaching.</p>
-<p>Ask your coach for an HSA/FSA payment link. You'll answer a short health survey, then pay with your HSA/FSA card.</p>`,
-          ),
-        );
-      }
+      if (req.method === 'GET' && url.pathname === '/') return send(200, homePage());
       if (req.method === 'GET' && url.pathname === '/health') return send(200, 'ok', 'text/plain');
-      if (req.method === 'GET' && url.pathname === '/checkout/success') {
-        return send(200, page('Thank you', `<h1>Thanks!</h1><p>Your payment is being processed. Your coach will be in touch shortly.</p>`));
+
+      if (pay && req.method === 'GET' && !pay[2]) {
+        const invoice = await stripe.getInvoice(pay[1]).catch(() => undefined);
+        if (!invoice) return send(404, messagePage('Invoice not found', 'Please check the link your coach sent you.'));
+        if (invoice.status === 'paid') return send(200, messagePage('Already paid', 'This invoice has been paid. Thank you!'));
+        if (invoice.status !== 'open') return send(409, messagePage('Invoice unavailable', 'This invoice is not open for payment. Please contact your coach.'));
+        return send(200, payPage({ invoice, config, truemedFailed: url.searchParams.get('truemed') === 'failed' }));
       }
-      if (req.method === 'GET' && url.pathname === '/checkout/failure') {
-        return send(200, page('Payment not completed', `<h1>Payment not completed</h1><p>Please contact your coach for another payment option.</p>`));
-      }
-      if (req.method === 'POST' && url.pathname === '/webhooks/truemed') {
-        const result = await handleWebhook(req, await readBody(req));
-        return send(result.status, result.body, 'text/plain');
-      }
-      if (url.pathname.startsWith('/admin')) {
-        if (!isAdmin(req)) return send(401, 'Authentication required', 'text/plain', { 'www-authenticate': 'Basic realm="sjfit"' });
-        if (req.method === 'GET' && url.pathname === '/admin') return send(200, adminPage());
-        if (req.method === 'POST' && url.pathname === '/admin/sessions') {
-          const form = Object.fromEntries(new URLSearchParams(await readBody(req)));
-          try {
-            const order = await createSession(form);
-            return send(
-              200,
-              adminPage(`<p>Send this link to ${esc(order.customerName)} (${money(order.totalAmount)}):</p>
-<p class="box"><a href="${esc(order.redirectUrl)}">${esc(order.redirectUrl)}</a></p>`),
-            );
-          } catch (err) {
-            log.error?.(err);
-            const detail = err.body ? ` ${esc(JSON.stringify(err.body))}` : '';
-            return send(400, adminPage(`<p class="box" style="background:#fdd">Error: ${esc(err.message)}${detail}</p>`));
-          }
+
+      if (pay && req.method === 'POST' && pay[2] === '/truemed') {
+        try {
+          return json(200, await startTruemed(pay[1]));
+        } catch (err) {
+          log.error?.(err);
+          return json(err.status || 400, { error: err.message });
         }
       }
+
+      if (pay && req.method === 'GET' && pay[2] === '/complete') {
+        let invoice = await stripe.getInvoice(pay[1]);
+        if (url.searchParams.get('via') === 'truemed' && invoice.metadata?.truemed_session_id) {
+          ({ invoice } = await reconcileTruemedSession(invoice.metadata.truemed_session_id, invoice));
+          return send(
+            200,
+            messagePage(
+              'Thank you!',
+              invoice?.status === 'paid'
+                ? 'Your HSA/FSA payment is complete. Your coach will be in touch shortly.'
+                : 'Your HSA/FSA payment is being finalized by Truemed (usually within minutes). You’ll get a receipt by email, and your coach will be in touch.',
+            ),
+          );
+        }
+        const piId = url.searchParams.get('payment_intent');
+        const pi = piId ? await stripe.getPaymentIntent(piId).catch(() => undefined) : undefined;
+        const ok = invoice.status === 'paid' || pi?.status === 'succeeded' || pi?.status === 'processing';
+        return send(
+          200,
+          ok
+            ? messagePage('Thank you!', 'Your payment was received. Your coach will be in touch shortly.')
+            : messagePage('Payment not completed', `Your payment didn’t go through. <a href="${payUrl(invoice.id)}">Try again</a>.`),
+        );
+      }
+
+      if (req.method === 'POST' && url.pathname === '/webhooks/truemed') {
+        const result = await handleTruemedWebhook(req, await readBody(req));
+        return send(result.status, result.body, 'text/plain');
+      }
+
+      if (url.pathname === '/admin') {
+        if (!isAdmin(req)) return send(401, 'Authentication required', 'text/plain', { 'www-authenticate': 'Basic realm="sjfit"' });
+        const { data } = await stripe.listOpenInvoices();
+        return send(200, adminPage({ invoices: data, payUrl, config }));
+      }
+
       return send(404, 'Not found', 'text/plain');
     } catch (err) {
       log.error?.(err);
-      return send(500, 'Internal error', 'text/plain');
+      return send(500, messagePage('Something went wrong', 'Please try again, or contact your coach.'));
     }
   };
 }
@@ -204,8 +197,8 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
   const config = getConfig();
   if (!config.adminPassword) console.warn('ADMIN_PASSWORD is not set; /admin will be locked.');
   const truemed = new TruemedClient({ apiKey: config.truemedApiKey, baseUrl: config.truemedBaseUrl });
-  const store = new OrderStore(config.dataDir);
-  createServer(createApp({ config, truemed, store })).listen(config.port, () => {
+  const stripe = new StripeClient({ secretKey: config.stripeSecretKey });
+  createServer(createApp({ config, truemed, stripe })).listen(config.port, () => {
     console.log(`SJFit listening on ${config.publicUrl} (Truemed ${config.truemedEnv}: ${config.truemedBaseUrl})`);
   });
 }

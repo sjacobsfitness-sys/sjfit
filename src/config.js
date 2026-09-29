@@ -27,6 +27,11 @@ export function getConfig(env = process.env) {
     adminPassword: env.ADMIN_PASSWORD || '',
     webhookSecret: env.TRUEMED_WEBHOOK_SECRET || '',
     feePercent: Number(env.TRUEMED_FEE_PERCENT || 0),
-    dataDir: env.DATA_DIR || 'data',
+    stripeSecretKey: env.STRIPE_SECRET_KEY || '',
+    stripePublishableKey: env.STRIPE_PUBLISHABLE_KEY || '',
+    // Custom payment method type created in Stripe Dashboard (cpmt_...). Optional:
+    // without it the pay page shows plain Card / HSA-FSA buttons instead of the Payment Element.
+    stripeCpmTypeId: env.STRIPE_CPM_TYPE_ID || '',
+    brandName: env.BRAND_NAME || 'Jacobs Fitness',
   };
 }
