@@ -41,7 +41,7 @@ test('creating a payment link then webhook marks order paid', async () => {
   const form = new URLSearchParams({
     customerName: 'Jane Doe',
     customerEmail: 'jane@example.com',
-    sku: 'SJF-MOVE-COACH',
+    sku: 'online-training',
     description: '6 months online coaching',
     price: '1200',
   });
@@ -53,7 +53,7 @@ test('creating a payment link then webhook marks order paid', async () => {
   assert.equal(res.status, 200);
   assert.match(await res.text(), /checkout\.truemed\.test\/ps_123/);
   assert.equal(app.calls[0].items[0].price, 120000);
-  assert.equal(app.calls[0].items[0].sku, 'SJF-MOVE-COACH');
+  assert.equal(app.calls[0].items[0].sku, 'online-training');
   assert.match(app.calls[0].successUrl, /^https:\/\/sjfit\.test\/checkout\/success/);
 
   const hook = await fetch(`${app.base}/webhooks/truemed`, {

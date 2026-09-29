@@ -155,8 +155,8 @@ ${config.feePercent ? `<p><small>Price is grossed up by ${config.feePercent}% to
           page(
             'Jacobs Fitness - HSA/FSA',
             `<h1>Pay for coaching with your HSA/FSA</h1>
-<p>Jacobs Fitness accepts HSA and FSA cards through Truemed for online movement coaching, health &amp; nutrition coaching,
-blood work review and in-person training.</p>
+<p>Jacobs Fitness accepts HSA and FSA cards through Truemed for private in-person training and
+1:1 online training and nutrition coaching.</p>
 <p>Ask your coach for an HSA/FSA payment link. You'll answer a short health survey, then pay with your HSA/FSA card.</p>`,
           ),
         );

@@ -11,14 +11,14 @@ Sean invoices clients one-on-one, so there is no Stripe checkout to modify. Inst
 4. Truemed gets a Letter of Medical Necessity, captures the payment and sends a webhook to `/webhooks/truemed`.
    The order flips to `captured` in `/admin` and payout arrives through Truemed's Stripe connection in 1–2 days.
 
-## SKUs (send these to Truemed / Lucas)
+## SKUs (registered with Truemed)
 
 | SKU | Service |
 | --- | --- |
-| `SJF-MOVE-COACH` | Online Movement Coaching |
-| `SJF-NUTRITION-COACH` | Health & Nutrition Coaching |
-| `SJF-BLOODWORK-REVIEW` | Blood Work Review |
-| `SJF-INPERSON-SESSION` | In-Person Training Session |
+| `inperson-training` | Private In-Person Training Sessions |
+| `online-training` | Online Coaching: Training |
+| `online-nutrition` | Online Coaching: Nutrition |
+| `online-hybrid` | Online Coaching: Training + Nutrition |
 
 SKUs must never change; prices can be anything at purchase time. Edit `src/catalog.js` to add more.
 
