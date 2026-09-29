@@ -39,7 +39,7 @@ against `src/catalog.js`.
 
 1. **Stripe custom payment method**: Dashboard → Settings → Payments → Custom payment methods → Create →
    "Provide a custom name and icon" → name `HSA/FSA (Truemed)`, Truemed logo. Copy the `cpmt_...` id.
-2. **Deploy** (Render: New → Web Service → this repo, build `npm install`, start `npm start`) and set env vars
+2. **Deploy** on Render: New → Blueprint → this repo (uses `render.yaml`), then fill in the secret env vars
    from `.env.example`.
 3. **Truemed webhook** destination: `https://<app>/webhooks/truemed`.
 4. Create a test invoice in Stripe test mode with one of the products above, open `/admin`, click through the pay link.

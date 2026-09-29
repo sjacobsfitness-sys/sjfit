@@ -1,0 +1,30 @@
+# Render Blueprint: New → Blueprint → pick this repo. Fill the "sync: false" values when prompted.
+services:
+  - type: web
+    name: sjfit-pay
+    runtime: node
+    plan: starter
+    buildCommand: npm install
+    startCommand: npm start
+    healthCheckPath: /health
+    envVars:
+      - key: TRUEMED_ENV
+        value: sandbox
+      - key: TRUEMED_API_KEY
+        sync: false
+      - key: TRUEMED_WEBHOOK_SECRET
+        sync: false
+      - key: TRUEMED_FEE_PERCENT
+        value: "0"
+      - key: STRIPE_SECRET_KEY
+        sync: false
+      - key: STRIPE_PUBLISHABLE_KEY
+        sync: false
+      - key: STRIPE_CPM_TYPE_ID
+        value: cpmt_1UL50oLq864JVSey7z5BW3UB
+      - key: PUBLIC_URL
+        sync: false
+      - key: ADMIN_PASSWORD
+        generateValue: true
+      - key: BRAND_NAME
+        value: Jacobs Fitness
