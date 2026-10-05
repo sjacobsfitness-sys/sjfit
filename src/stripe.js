@@ -1,5 +1,7 @@
 // Minimal Stripe REST client (no SDK, so the app stays dependency-free).
 // Pinned API version so response shapes (invoice.payment_intent, line.price) stay stable.
+import { createHmac, timingSafeEqual } from 'node:crypto';
+
 export const STRIPE_API_VERSION = '2024-06-20';
 
 export class StripeError extends Error {
@@ -90,4 +92,29 @@ StripeClient.prototype.findInvoiceByTruemedSession = async function (sessionId) 
     query: `metadata['truemed_session_id']:'${safe}'`,
   });
   return res.data?.[0];
+};
+
+// Verify a Stripe-Signature header (t=...,v1=...) against the raw request body.
+export function verifyStripeSignature(rawBody, header, secret, toleranceSec = 300, now = Date.now()) {
+  if (!header || !secret) return false;
+  const parts = Object.fromEntries(
+    header.split(',').map((kv) => kv.split('=')).filter((p) => p.length === 2).map(([k, v]) => [k.trim(), v.trim()]),
+  );
+  const v1s = header.split(',').filter((kv) => kv.trim().startsWith('v1=')).map((kv) => kv.trim().slice(3));
+  const t = Number(parts.t);
+  if (!t || !v1s.length || Math.abs(now / 1000 - t) > toleranceSec) return false;
+  const expected = Buffer.from(createHmac('sha256', secret).update(`${t}.${rawBody}`).digest('hex'));
+  return v1s.some((sig) => {
+    const got = Buffer.from(sig);
+    return got.length === expected.length && timingSafeEqual(got, expected);
+  });
+}
+
+export const PAY_LINK_FIELD = 'Pay by card or HSA/FSA';
+
+StripeClient.prototype.addPayLinkToInvoice = async function (invoice, url) {
+  const fields = (invoice.custom_fields || []).filter((f) => f.name !== PAY_LINK_FIELD);
+  if (fields.length >= 4) return undefined; // Stripe allows max 4 custom fields; leave the invoice alone
+  fields.push({ name: PAY_LINK_FIELD, value: url });
+  return this.request('POST', `/v1/invoices/${encodeURIComponent(invoice.id)}`, { custom_fields: fields });
 };

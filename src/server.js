@@ -3,7 +3,7 @@ import { timingSafeEqual } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { loadEnv, getConfig, validateConfig } from './config.js';
 import { TruemedClient } from './truemed.js';
-import { StripeClient } from './stripe.js';
+import { StripeClient, verifyStripeSignature, PAY_LINK_FIELD } from './stripe.js';
 import { truemedItemsFromInvoice } from './invoice.js';
 import { payPage, messagePage, adminPage, homePage } from './pages.js';
 
@@ -180,6 +180,23 @@ export function createApp({ config, truemed, stripe, log = console }) {
             ? messagePage('Thank you!', 'Your payment was received. Your coach will be in touch shortly.')
             : messagePage('Payment not completed', `Your payment didn’t go through. <a href="${payUrl(invoice.id)}">Try again</a>.`),
         );
+      }
+
+      if (req.method === 'POST' && url.pathname === '/webhooks/stripe') {
+        const raw = await readBody(req);
+        if (!verifyStripeSignature(raw, req.headers['stripe-signature'], config.stripeWebhookSecret)) {
+          return send(400, 'invalid signature', 'text/plain');
+        }
+        const event = JSON.parse(raw);
+        const invoice = event.data?.object;
+        // Put our pay link on every new draft invoice, so it shows on the invoice email, PDF and Stripe page.
+        if (event.type === 'invoice.created' && invoice?.object === 'invoice' && invoice.status === 'draft') {
+          const already = (invoice.custom_fields || []).some((f) => f.name === PAY_LINK_FIELD);
+          if (!already) {
+            await stripe.addPayLinkToInvoice(invoice, payUrl(invoice.id)).catch((err) => log.error?.(`Pay link not added to ${invoice.id}: ${err.message}`));
+          }
+        }
+        return send(200, 'ok', 'text/plain');
       }
 
       if (req.method === 'POST' && url.pathname === '/webhooks/truemed') {

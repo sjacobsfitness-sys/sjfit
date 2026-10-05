@@ -39,6 +39,8 @@ export function getConfig(env = process.env) {
     // Custom payment method type created in Stripe Dashboard (cpmt_...). Test and live have different ids.
     // Without it the pay page shows plain Card / HSA-FSA buttons instead of the Payment Element.
     stripeCpmTypeId: pick('STRIPE_CPM_TYPE_ID'),
+    // Signing secret (whsec_...) of the Stripe webhook that adds pay links to new invoices.
+    stripeWebhookSecret: pick('STRIPE_WEBHOOK_SECRET'),
     brandName: env.BRAND_NAME || 'Jacobs Fitness',
   };
 }

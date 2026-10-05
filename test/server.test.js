@@ -164,3 +164,24 @@ test('webhook for an unknown id is acknowledged, not retried forever', async () 
   assert.equal(app.stripe.invoice.status, 'open');
   app.close();
 });
+
+test('Stripe invoice.created webhook adds the pay link to draft invoices', async () => {
+  const { createHmac } = await import('node:crypto');
+  const app = await start({ config: { stripeWebhookSecret: 'whsec_test' } });
+  const added = [];
+  app.stripe.addPayLinkToInvoice = async (inv, url) => added.push([inv.id, url]);
+  const post = (event, secret = 'whsec_test') => {
+    const body = JSON.stringify(event);
+    const t = Math.floor(Date.now() / 1000);
+    const sig = createHmac('sha256', secret).update(`${t}.${body}`).digest('hex');
+    return fetch(`${app.base}/webhooks/stripe`, { method: 'POST', headers: { 'stripe-signature': `t=${t},v1=${sig}` }, body });
+  };
+  const draft = { type: 'invoice.created', data: { object: { object: 'invoice', id: 'in_new1', status: 'draft', custom_fields: null } } };
+  assert.equal((await post(draft, 'whsec_wrong')).status, 400);
+  assert.equal((await post(draft)).status, 200);
+  assert.deepEqual(added, [['in_new1', 'https://pay.sjfit.test/pay/in_new1']]);
+  const withLink = { type: 'invoice.created', data: { object: { ...draft.data.object, id: 'in_new2', custom_fields: [{ name: 'Pay by card or HSA/FSA', value: 'x' }] } } };
+  await post(withLink);
+  assert.equal(added.length, 1, 'does not add twice');
+  app.close();
+});
