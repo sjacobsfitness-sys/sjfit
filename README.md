@@ -55,7 +55,8 @@ npm start
 - Base URL `https://dev-api.truemed.com`, header `x-truemed-api-key`
 - `POST /payments/v1/create_payment_session` → `{ id, redirect_url }`
 - `GET /payments/v1/payment_session/{id}` → `status`: `processing` (authorized, awaiting letter) → `captured`
-- Fee on a $600 test: `truemed_fee` $38.00
+- Fee on a $600 test: `truemed_fee` $38.00 (6.33%). Production runs `TRUEMED_FEE_PERCENT=6.34`, so HSA/FSA payers
+  cover the fee (a $600 invoice is charged $640.61 via Truemed) while card payers pay the invoice amount.
 
 Still to confirm: Truemed webhook payload/signature (handler logs raw payloads and accepts `payment_session_id`/`id`).
 
@@ -72,7 +73,7 @@ key doesn't match the mode (e.g. a `sk_test_` key while `MODE=live`).
 | Truemed key | `TRUEMED_API_KEY` (sandbox) | `TRUEMED_API_KEY_LIVE` (production) |
 | Truemed webhook secret | `TRUEMED_WEBHOOK_SECRET` | `TRUEMED_WEBHOOK_SECRET_LIVE` |
 
-Live checklist: copy the 4 products to live mode (keeps `truemed_sku`), set the `_LIVE` vars, point Truemed's
+Live checklist: the 4 SKU-tagged products exist in live Stripe (created 2026-10-05), set the `_LIVE` vars, point Truemed's
 production webhook at `https://pay.jacobsfit.com/webhooks/truemed`, then set `MODE=live`. Rollback = `MODE=test`.
 
 ## Operations
