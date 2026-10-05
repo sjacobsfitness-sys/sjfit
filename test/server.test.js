@@ -153,3 +153,14 @@ test('admin lists open invoices with pay links and requires password', async () 
   assert.match(html, /https:\/\/pay\.sjfit\.test\/pay\/in_test123/);
   app.close();
 });
+
+test('webhook for an unknown id is acknowledged, not retried forever', async () => {
+  const app = await start();
+  app.truemed.getPaymentSession = async () => {
+    throw new Error('Truemed GET failed with 404');
+  };
+  const r = await fetch(`${app.base}/webhooks/truemed`, { method: 'POST', body: JSON.stringify({ id: 'dispute_123' }) });
+  assert.equal(r.status, 200);
+  assert.equal(app.stripe.invoice.status, 'open');
+  app.close();
+});

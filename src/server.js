@@ -114,7 +114,14 @@ export function createApp({ config, truemed, stripe, log = console }) {
     const data = event.data || event.payment_session || event;
     const sessionId = data.payment_session_id || event.payment_session_id || data.id;
     if (!sessionId) return { status: 200, body: 'ignored: no payment session id' };
-    await reconcileTruemedSession(sessionId);
+    try {
+      await reconcileTruemedSession(sessionId);
+    } catch (err) {
+      // Unknown ids (e.g. a dispute id) or Truemed hiccups: log and ack so Truemed doesn't retry forever.
+      // The client's return page re-checks the session anyway.
+      log.error?.(`Truemed webhook for ${sessionId} not reconciled: ${err.message}`);
+      return { status: 200, body: 'ignored' };
+    }
     return { status: 200, body: 'ok' };
   }
 
