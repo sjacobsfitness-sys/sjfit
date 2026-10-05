@@ -111,6 +111,8 @@ export function createApp({ config, truemed, stripe, log = console }) {
       return { status: 400, body: 'invalid json' };
     }
     log.log?.(`Truemed webhook: ${raw.slice(0, 2000)}`);
+    // Header names only (values may be secrets) so we can see how Truemed signs webhooks.
+    log.log?.(`Truemed webhook headers: ${Object.keys(req.headers).join(', ')}`);
     const data = event.data || event.payment_session || event;
     const sessionId = data.payment_session_id || event.payment_session_id || data.id;
     if (!sessionId) return { status: 200, body: 'ignored: no payment session id' };
