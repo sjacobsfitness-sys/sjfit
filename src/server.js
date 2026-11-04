@@ -53,7 +53,7 @@ export function createApp({ config, truemed, stripe, log = console }) {
       }
     }
 
-    const { items } = truemedItemsFromInvoice(invoice, config.feePercent);
+    const { items } = truemedItemsFromInvoice(invoice, config.feePercent, config.feeFixedCents);
     const customer = typeof invoice.customer === 'object' ? invoice.customer : {};
     const session = await truemed.createPaymentSession({
       orderId: invoice.id,

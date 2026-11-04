@@ -23,7 +23,7 @@ export function skuForLine(line) {
  * Turn a Stripe invoice into Truemed order_items whose prices sum exactly to the
  * amount the client will be charged (amount_due, optionally grossed up for Truemed's fee).
  */
-export function truemedItemsFromInvoice(invoice, feePercent = 0) {
+export function truemedItemsFromInvoice(invoice, feePercent = 0, feeFixedCents = 0) {
   const lines = (invoice.lines?.data || []).filter((l) => l.amount > 0);
   if (!lines.length) throw new Error('Invoice has no billable lines');
   const items = lines.map((line) => {
@@ -37,7 +37,7 @@ export function truemedItemsFromInvoice(invoice, feePercent = 0) {
     return { sku, name: (typeof product === 'object' && product?.name) || line.description, amount: line.amount };
   });
 
-  const total = applyFee(invoice.amount_due, feePercent);
+  const total = applyFee(invoice.amount_due, feePercent, feeFixedCents);
   const lineSum = items.reduce((s, i) => s + i.amount, 0);
   let allocated = 0;
   return {

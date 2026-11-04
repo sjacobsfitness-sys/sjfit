@@ -55,8 +55,8 @@ npm start
 - Base URL `https://dev-api.truemed.com`, header `x-truemed-api-key`
 - `POST /payments/v1/create_payment_session` → `{ id, redirect_url }`
 - `GET /payments/v1/payment_session/{id}` → `status`: `processing` (authorized, awaiting letter) → `captured`
-- Fee on a $600 test: `truemed_fee` $38.00 (6.33%). Production runs `TRUEMED_FEE_PERCENT=6.34`, so HSA/FSA payers
-  cover the fee (a $600 invoice is charged $640.61 via Truemed) while card payers pay the invoice amount.
+- Fee on a $600 test: `truemed_fee` $38.00 = 6% + $2. The app adds that on top for HSA/FSA payers only
+  (`TRUEMED_FEE_PERCENT=6`, `TRUEMED_FEE_FIXED=2`), so you receive the invoice amount; card payers pay the invoice amount.
 
 Still to confirm: Truemed webhook payload/signature (handler logs raw payloads and accepts `payment_session_id`/`id`).
 

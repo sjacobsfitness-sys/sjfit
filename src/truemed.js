@@ -110,9 +110,11 @@ export class TruemedClient {
 }
 
 /** Gross a price up so Truemed's percentage fee is wrapped into what the client pays. */
-export function applyFee(cents, feePercent) {
-  if (!feePercent) return cents;
-  return Math.round(cents / (1 - feePercent / 100));
+// Truemed charges percent of the total + a fixed amount (6% + $2 at the time of writing), so the
+// HSA/FSA charge is (invoice + fixed) / (1 - percent): after Truemed's fee, you receive the invoice amount.
+export function applyFee(cents, feePercent = 0, fixedCents = 0) {
+  if (!feePercent && !fixedCents) return cents;
+  return Math.ceil((cents + fixedCents) / (1 - feePercent / 100));
 }
 
 export function dollarsToCents(value) {

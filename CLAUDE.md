@@ -14,7 +14,7 @@ ALWAYS ask for anything missing before creating it. Required:
    - `online-training` – Online Coaching: Training
    - `online-nutrition` – Online Coaching: Nutrition
    - `online-hybrid` – Online Coaching: Training + Nutrition
-4. **Price** (the normal card price; the app adds the 6.34% Truemed fee only for HSA/FSA payers)
+4. **Price** (the normal card price; the app adds Truemed's 6% + $2 fee on top only for HSA/FSA payers, so don't build it into the price. Sean adds 3% to his package price for Stripe card fees, e.g. $2,400 package → invoice $2,472)
 5. **What it's for**, shown on the invoice (e.g. "6 months online coaching")
 6. **Live or test** (default: live for real clients)
 

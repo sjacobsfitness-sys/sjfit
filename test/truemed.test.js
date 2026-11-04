@@ -56,4 +56,11 @@ test('money helpers', () => {
   assert.throws(() => dollarsToCents('abc'));
   assert.equal(applyFee(10000, 0), 10000);
   assert.equal(applyFee(9500, 5), 10000);
+  // 6% + $2: you receive the invoice amount after Truemed's cut
+  for (const invoice of [500, 60000, 247200]) {
+    const charge = applyFee(invoice, 6, 200);
+    const net = charge - (charge * 0.06 + 200);
+    assert.ok(net >= invoice && net - invoice < 2, `${invoice} -> ${charge} nets ${net}`);
+  }
+  assert.equal(applyFee(247200, 6, 200), 263192);
 });

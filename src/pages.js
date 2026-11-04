@@ -38,7 +38,7 @@ export function homePage() {
 
 export function payPage({ invoice, config, truemedFailed }) {
   const currency = invoice.currency || 'usd';
-  const hsaAmount = applyFee(invoice.amount_due, config.feePercent);
+  const hsaAmount = applyFee(invoice.amount_due, config.feePercent, config.feeFixedCents);
   const lines = (invoice.lines?.data || [])
     .map((l) => `<div class="row"><span>${esc(l.description)}</span><span>${money(l.amount, currency)}</span></div>`)
     .join('');

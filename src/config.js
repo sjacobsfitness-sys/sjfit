@@ -34,6 +34,8 @@ export function getConfig(env = process.env) {
     adminPassword: env.ADMIN_PASSWORD || '',
     webhookSecret: pick('TRUEMED_WEBHOOK_SECRET'),
     feePercent: Number(env.TRUEMED_FEE_PERCENT || 0),
+    // Fixed part of Truemed's fee, in cents (TRUEMED_FEE_FIXED is in dollars, e.g. 2).
+    feeFixedCents: Math.round(Number(env.TRUEMED_FEE_FIXED || 0) * 100),
     stripeSecretKey: pick('STRIPE_SECRET_KEY'),
     stripePublishableKey: pick('STRIPE_PUBLISHABLE_KEY'),
     // Custom payment method type created in Stripe Dashboard (cpmt_...). Test and live have different ids.
